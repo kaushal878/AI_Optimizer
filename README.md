@@ -132,4 +132,4 @@ The frontend's backend URL is controlled by:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+KAUSHAL.
