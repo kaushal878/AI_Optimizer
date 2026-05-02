@@ -1,4 +1,3 @@
-import jsPDF from 'jspdf'
 import type { OptimizeResult } from '../types'
 
 export function downloadBlob(content: BlobPart, filename: string, mime: string) {
@@ -17,8 +16,8 @@ export function downloadPromptText(prompt: string, ext: 'txt' | 'md' = 'txt') {
   downloadBlob(prompt, `optimized-prompt.${ext}`, ext === 'md' ? 'text/markdown' : 'text/plain')
 }
 
-export function downloadPromptJson(original: string, result: OptimizeResult) {
-  const payload = {
+export function buildAnalysisPayload(original: string, result: OptimizeResult) {
+  return {
     original_prompt: original,
     optimized_prompt: result.optimized_prompt,
     token_reduction: result.token_reduction,
@@ -32,14 +31,23 @@ export function downloadPromptJson(original: string, result: OptimizeResult) {
     download_ready: true,
     generated_at: new Date().toISOString(),
   }
-  downloadBlob(JSON.stringify(payload, null, 2), 'prompt-analysis.json', 'application/json')
 }
 
-function wrapLines(doc: jsPDF, text: string, width: number): string[] {
-  return doc.splitTextToSize(text, width) as string[]
+export function downloadPromptJson(original: string, result: OptimizeResult) {
+  downloadBlob(
+    JSON.stringify(buildAnalysisPayload(original, result), null, 2),
+    'prompt-analysis.json',
+    'application/json'
+  )
 }
 
-export function downloadPromptPdf(original: string, result: OptimizeResult) {
+/**
+ * jsPDF and html2canvas together weigh ~600 kB minified, so we lazy-load them
+ * only when the user actually clicks Download PDF.
+ */
+export async function downloadPromptPdf(original: string, result: OptimizeResult) {
+  const { default: jsPDF } = await import('jspdf')
+
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const margin = 48
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -53,6 +61,9 @@ export function downloadPromptPdf(original: string, result: OptimizeResult) {
       y = margin
     }
   }
+
+  const wrapLines = (text: string, width: number): string[] =>
+    doc.splitTextToSize(text, width) as string[]
 
   const writeLines = (lines: string[], lineHeight = 14) => {
     for (const line of lines) {
@@ -106,7 +117,6 @@ export function downloadPromptPdf(original: string, result: OptimizeResult) {
   for (const it of result.intents) {
     writeLines(
       wrapLines(
-        doc,
         `• ${it.intent} (${(it.confidence * 100).toFixed(0)}%) — ${it.reasons.join(', ') || '—'}`,
         contentWidth
       )
@@ -119,17 +129,17 @@ export function downloadPromptPdf(original: string, result: OptimizeResult) {
     writeLines(['(no automatic enhancements were needed)'])
   } else {
     for (const e of result.enhancements) {
-      writeLines(wrapLines(doc, `• ${e.label}: ${e.detail}`, contentWidth))
+      writeLines(wrapLines(`• ${e.label}: ${e.detail}`, contentWidth))
     }
   }
   y += 4
 
   section('Original prompt')
-  writeLines(wrapLines(doc, original, contentWidth))
+  writeLines(wrapLines(original, contentWidth))
   y += 4
 
   section('Optimized prompt')
-  writeLines(wrapLines(doc, result.optimized_prompt, contentWidth))
+  writeLines(wrapLines(result.optimized_prompt, contentWidth))
 
   doc.save('promptoptimizer-report.pdf')
 }
@@ -137,5 +147,5 @@ export function downloadPromptPdf(original: string, result: OptimizeResult) {
 export async function downloadAll(original: string, result: OptimizeResult) {
   downloadPromptText(result.optimized_prompt, 'md')
   downloadPromptJson(original, result)
-  downloadPromptPdf(original, result)
+  await downloadPromptPdf(original, result)
 }
